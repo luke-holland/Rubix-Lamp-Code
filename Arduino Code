@@ -1,0 +1,812 @@
+//GIZMO PROJECT CODE//
+//LUKE HOLLAND//
+//DE2//
+//25.04.19//
+
+//Written for an ARDUINO MEGA 2560
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//This code governs the interaction of a rubix lamp. A interestingly useless gizmo that acts as a standard
+//white LED lamp, but only when the user aligns all the pieces correctly. Not only does the lamp have to be
+//solved, but it will unsolve and then resolves itself if put in the correct setting.
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+//IMPORT LIBRARIES
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#include <AccelStepper.h>
+#include <MultiStepper.h>
+#include <Servo.h>
+
+
+//DEFINE ALL PINS, MODES AND MOTORS
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//time_now is the variable used to implement pauses in the code (as opposed to delays.
+unsigned long time_now = 0;
+
+//create 3 servos and position varibales
+//(3 pins)
+Servo servo1;
+Servo servo2;
+Servo servo3;
+
+int pos1 = 65;
+int pos2 = 65;
+int pos3 = 65;
+
+//Each of the servos needs to shift between 3 positions, engageing either the inner or 
+//or outer shafts and then being able to switch to a neutral position. Due to slight 
+//errors in the alignment of some of the shafts, these positions were different for each
+//servo. Hence a different set of variables was created for each, to store this positions.
+
+//servo1
+const int val1I = 50;
+const int val1O = 120;
+const int val1N = 80;
+
+//servo2
+const int val2I = 5;
+const int val2O = 115;
+const int val2N = 80;
+
+//servo3
+const int val3I = 8;
+const int val3O = 100;
+const int val3N = 75;
+
+//Define 3 halfstep stepper motors using the Accelstepper library (12 pins)
+
+#define HALFSTEP 4
+
+//Stepper1
+#define stepper11  2     // IN1 for stepper 1
+#define stepper12  3    // IN2 for stepper 1
+#define stepper13  4     // IN3 for stepper 1
+#define stepper14  5     // IN4 for stepper 1
+
+AccelStepper stepper1(HALFSTEP, stepper11, stepper12, stepper13, stepper14);
+
+//Stepper2
+#define stepper21  6     // IN1 for stepper 2
+#define stepper22  7     // IN2 for stepper 2
+#define stepper23  8     // IN3 for stepper 2
+#define stepper24  9    // IN4 for stepper 2
+
+AccelStepper stepper2(HALFSTEP, stepper21, stepper22, stepper23, stepper24);
+
+//Stepper3
+#define stepper31  10     // IN1 for stepper 3
+#define stepper32  11     // IN2 for stepper 3
+#define stepper33  12     // IN3 for stepper 3
+#define stepper34  13     // IN4 for stepper 3
+
+AccelStepper stepper3(HALFSTEP, stepper31, stepper32, stepper33, stepper34);
+
+//define all the hall effect sensors pins (8 pins)
+//The naming for the hall effect sensors is: HE_xy, where x represents the shaft,
+//and y refers to whether the second or first corner is sensed.
+
+const int HE_11 = 25;
+const int HE_12 = 26;
+const int HE_21 = 27;
+const int HE_22 = 28;
+const int HE_31 = 29;
+const int HE_32 = 30;
+//top only has two, so naming less important
+const int HE_top1 = 31;
+const int HE_top2 = 32;
+
+//define variables for each of the hall effects
+
+int he_11 = 0;
+int he_12 = 0;
+int he_21 = 0;
+int he_22 = 0;
+int he_31 = 0;
+int he_32 = 0;
+int he_top1 = 0;
+int he_top2 = 0;
+
+//define all the LEDs (14 pins)
+//the LEDs are named either as LED_MX(W), where X is the colour, and a W indicates
+//that the white LEDs on the red middle face will turn on
+//For the corner LEDs W or C represents white or colour, and the number indicates the shaft
+
+const int LED_MGW = 46;
+const int LED_MG = 47;
+const int LED_MRW = 48;
+const int LED_MR = 49;
+const int LED_MYW = 50;
+const int LED_MY = 51;
+
+const int LED_1C = 38;
+const int LED_1W = 39;
+const int LED_2C = 40;
+const int LED_2W = 41;
+const int LED_3C = 42;
+const int LED_3W = 43;
+const int LED_TC = 44;
+const int LED_TW = 45;
+
+//CREATE FUNCTIONS TO BE USED IN THE MAIN LOOP
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//This function takes any servo and relavant variables and engages the inner shaft
+//of that gear train. NB &theservo denotes any Servo variable
+
+int engageI(int valN, int valI, int valO, int pos, Servo &theservo) {
+  
+
+  if (pos <= valI) {
+    //If the inner shaft is already engage - no action needed
+  }
+ 
+  else if (valI < pos < valO) {
+    //If the gear train is in the neutral position
+    for (pos = valN; pos >= valI; pos -= 1) {
+      theservo.write(pos);
+      time_now = millis();
+      while (millis() < time_now + 50) {
+        //moving the servo at only one position every 50 ms prevents the dog clutches
+        //from twisting on the shaft
+      }
+    }
+  }
+
+  else if (pos >= valO) {
+    //If the gear train is engaged to the outer shaft
+    for (pos = valO; pos >= valI; pos -= 1) {
+      theservo.write(pos);            
+      time_now = millis();
+      while (millis() < time_now + 50) {
+      }
+    }
+  }
+  //return pos at the end to make sure the variable is updated
+  return pos;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//This function engages the outer shaft in the same way as engageI()
+
+int engageO(int valN, int valI, int valO, int pos, Servo &theservo) {
+  
+  if (pos >= valO) {
+    //If the shaft is already in position - no action needed
+  }
+  else if (valI < pos < valO) {
+    for (pos = valN; pos <= valO; pos += 1) {
+      theservo.write(pos);
+      time_now = millis();
+      while (millis() < time_now + 50) {
+      }
+    }
+  }
+
+  else if (pos <= valI) {
+    for (pos = valI; pos <= valO; pos += 1) {
+      theservo.write(pos);
+      time_now = millis();
+      while (millis() < time_now + 50) {
+      }
+    }
+  }
+  return pos;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//engageN works in just the same way as engageI and engageO
+
+int engageN(int valN, int valI, int valO, int pos, Servo &theservo) {
+  if (pos == valN) {
+    //do nothing
+  }
+
+  else if (pos <= valN) {
+    for (pos = valI; pos <= valN; pos += 1) {
+      theservo.write(pos);
+      time_now = millis();
+      while (millis() < time_now + 25) {
+        //moving the servo into the neutral position was less 'troublesome' than the
+        //other two, so it can be moved slightly faster
+      }
+    }
+  }
+
+  else if (pos >= valO) {
+    for (pos = valO; pos >= valN; pos -= 1) {
+      theservo.write(pos);
+      time_now = millis();
+      while (millis() < time_now + 25) {
+      }
+    }
+  }
+  return pos;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//LightsOut() immediately turns all the LEDs off, both white and colour
+
+void LightsOut() {
+  //NB - writing HIGH to an LED turns it off
+  //writing LOW to an LED turns it on
+  digitalWrite(LED_MR, HIGH);
+  digitalWrite(LED_MG, HIGH);
+  digitalWrite(LED_MY, HIGH);
+  digitalWrite(LED_MRW, HIGH);
+  digitalWrite(LED_MGW, HIGH);
+  digitalWrite(LED_MYW, HIGH);
+
+  digitalWrite(LED_1C, HIGH);
+  digitalWrite(LED_2C, HIGH);
+  digitalWrite(LED_3C, HIGH);
+  digitalWrite(LED_1W, HIGH);
+  digitalWrite(LED_2W, HIGH);
+  digitalWrite(LED_3W, HIGH);
+  digitalWrite(LED_TC, HIGH);
+  digitalWrite(LED_TW, HIGH);
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//colourONF() turns all the LEDs off, and then makes the coloured ones flicker on
+
+void colourONF() {
+  
+  LightsOut();
+  delay(500);
+  digitalWrite(LED_MR, LOW);
+  time_now = millis();
+  while (millis() < time_now + 700) {
+  }
+  digitalWrite(LED_2C, LOW);
+  time_now = millis();
+  while (millis() < time_now + 500) {
+  }
+  digitalWrite(LED_2C, LOW);
+  time_now = millis();
+  while (millis() < time_now + 300) {
+  }
+  digitalWrite(LED_MG, LOW);
+  digitalWrite(LED_1C, LOW);
+  time_now = millis();
+  while (millis() < time_now + 200) {
+  }
+  digitalWrite(LED_MY, LOW);
+  digitalWrite(LED_3C, LOW);
+  time_now = millis();
+  while (millis() < time_now + 1000) {
+  }
+  digitalWrite(LED_TC, LOW);
+  time_now = millis();
+  while (millis() < time_now + 700) {
+  }
+
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//whiteONF() works the same as colourONF(), but flickers the white lights on
+
+void whiteONF() {
+  
+  LightsOut();
+  digitalWrite(LED_MRW, LOW);
+  time_now = millis();
+  while (millis() < time_now + 700) {
+  }
+  digitalWrite(LED_2W, LOW);
+  time_now = millis();
+  while (millis() < time_now + 500) {
+  }
+  digitalWrite(LED_2W, LOW);
+  time_now = millis();
+  while (millis() < time_now + 300) {
+  }
+  digitalWrite(LED_MGW, LOW);
+  digitalWrite(LED_1W, LOW);
+  time_now = millis();
+  while (millis() < time_now + 200) {
+  }
+  digitalWrite(LED_MYW, LOW);
+  digitalWrite(LED_3W, LOW);
+  time_now = millis();
+  while (millis() < time_now + 1000) {
+  }
+  digitalWrite(LED_TW, LOW);
+  time_now = millis();
+  while (millis() < time_now + 700) {
+  }
+
+
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//WCSwitch() is slightly more complicated. It will take any two LEDs and
+//switch them over. Very useful for quickly changing a corner from white
+//to colour (or vice versa).
+
+void WCSwitch(int state1, int state2) {
+  int ONE = 0;
+  int TWO = 0;
+  ONE = digitalRead(state1);
+  TWO = digitalRead(state2);
+
+  if ((ONE == HIGH) && (TWO == HIGH)) {
+    digitalWrite(state2, LOW);
+  }
+  else if ((ONE == LOW) && (TWO == LOW)) {
+    digitalWrite(state1, HIGH);
+  }
+  else if ((ONE == HIGH) && (TWO == LOW)) {
+
+  }
+
+  else if ((ONE == LOW) && (TWO == HIGH)) {
+    digitalWrite(state2, LOW);
+    digitalWrite(state1, HIGH);
+  }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//Colour2White() simply turns the lights off, and then switches only the coloured ones back on
+
+void Colour2White() {
+  //switch all the coloured lights to white lights
+  LightsOut();
+  digitalWrite(LED_MRW, LOW);
+  digitalWrite(LED_MYW, LOW);
+  digitalWrite(LED_MGW, LOW);
+  digitalWrite(LED_1W, LOW);
+  digitalWrite(LED_2W, LOW);
+  digitalWrite(LED_3W, LOW);
+  digitalWrite(LED_TW, LOW);
+
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//White2Colour() does the opposite of Colour2White()
+
+void White2Colour() {
+  //switch all the white lights back to coloured ones
+  LightsOut();
+  digitalWrite(LED_MR, LOW);
+  digitalWrite(LED_MG, LOW);
+  digitalWrite(LED_MY, LOW);
+
+  digitalWrite(LED_1C, LOW);
+  digitalWrite(LED_2C, LOW);
+  digitalWrite(LED_3C, LOW);
+  digitalWrite(LED_TC, LOW);
+
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//This is the start sequence that runs with every power up. Essentially it flickers through the 
+
+void start(){
+  LightsOut();
+  colourONF();
+  delay(2000);
+  //So this function would turn LED_1C off and LED_1W on
+  WCSwitch(LED_1W, LED_1C);
+  delay(300);
+  WCSwitch(LED_2W, LED_2C);
+  delay(300);
+  WCSwitch(LED_3W, LED_3C);
+  delay(300);
+  WCSwitch(LED_MRW, LED_MR);
+  delay(300);
+  WCSwitch(LED_MYW, LED_MY);
+  delay(300);
+  WCSwitch(LED_MGW, LED_MG);
+  delay(300);
+  WCSwitch(LED_TW, LED_TC);
+  delay(1500);
+  
+  
+  int i = 0;
+  while (i < 4){
+    //this flashes the top corner white and coloured alternately
+    WCSwitch(LED_TW, LED_TC);
+    delay(200);
+    WCSwitch(LED_TW, LED_TC);
+    delay(200);
+    i = i +1;
+  }
+  
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//StartLights() just repeats the conditions at the end of start(), so it can be 
+//restated at the beginning of each loop()
+
+void StartLights(){
+  LightsOut();
+  digitalWrite(LED_1W, LOW);
+  digitalWrite(LED_2W, LOW);
+  digitalWrite(LED_3W, LOW);
+  digitalWrite(LED_MRW, LOW);
+  digitalWrite(LED_MGW, LOW);
+  digitalWrite(LED_MYW, LOW);
+  digitalWrite(LED_TC, LOW);
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//TopPos() determines the position of the top corner and returns a corresponding number
+
+int TopPos() {
+  he_top1 = digitalRead(HE_top1);
+  he_top2 = digitalRead(HE_top2);
+
+  if (he_top1 == 0 && he_top2 == 0) { //Green to Green
+    return 0;
+  }
+  else if (he_top1 == 0 && he_top2 == 1) { //yellow to green
+    return 1;
+  }
+
+  else if (he_top1 == 1 && he_top2 == 0) { //red to green
+    return 2;
+  }
+  else{
+    return 3;
+  }
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//CornerSense() takes the 1st and 2nd HE for a single corner and switches the 
+//corner to white if both are correctly aligned
+
+int CornerSense(int HE1, int HE2, int LEDC, int LEDW) {
+  int he1 = digitalRead(HE1);
+  int he2 = digitalRead(HE2);
+  if (he1 == 0 && he2 == 0) {
+    digitalWrite(LEDC, HIGH);
+    digitalWrite(LEDW, LOW);
+    return 1;
+  }
+  else {
+    digitalWrite(LEDC, LOW);
+    digitalWrite(LEDW, HIGH);
+    return 0;
+  }
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//MW() simply turns the middle section white
+
+void MW() {
+  digitalWrite(LED_MR, HIGH);
+  digitalWrite(LED_MG, HIGH);
+  digitalWrite(LED_MY, HIGH);
+
+  digitalWrite(LED_MRW, LOW);
+  digitalWrite(LED_MGW, LOW);
+  digitalWrite(LED_MYW, LOW);
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//MC() simply turns the middle section coloured LEDs on
+
+void MC() {
+  digitalWrite(LED_MR, LOW);
+  digitalWrite(LED_MG, LOW);
+  digitalWrite(LED_MY, LOW);
+
+  digitalWrite(LED_MRW, HIGH);
+  digitalWrite(LED_MGW, HIGH);
+  digitalWrite(LED_MYW, HIGH);
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//neutral() sets all the servos to the neutral position, so that the pieces
+//can be turned by hand
+
+void neutral(){
+  pos1 = engageN(val1N, val1I, val1O, pos1, servo1);
+  pos2 = engageN(val2N, val2I, val2O, pos2, servo2);
+  pos3 = engageN(val3N, val3I, val3O, pos3, servo3);
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//HandSolve() checks to see if all the corners are aligned correctly, and if
+//they are, turns the central piece white. Each CornerSense() function will 
+//also turn the corner LEDs white
+
+int HandSolve() {
+  //make the corners turnable
+  neutral();
+  //If the corner is aligned the CornerSense() returns 1
+  int sense1 = CornerSense(HE_11, HE_12, LED_1C, LED_1W);
+  int sense2 = CornerSense(HE_21, HE_22, LED_2C, LED_2W);
+  int sense3 = CornerSense(HE_31, HE_32, LED_3C, LED_3W);
+  int senseT = CornerSense(HE_top1, HE_top2, LED_TC, LED_TW);
+
+  if (sense1 && sense2 && sense3 && senseT) {
+    MW();
+    return 1;
+  }
+  else {
+    MC();
+    return 0;
+  }
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//locateStepper() sets the premliminary conditions for any stepper in terms of
+//speeds and acceleration. It should be noted that the speeds are lower than 
+//desired. As a stepper works by energising each of the coils in turn to rotate 
+//the shaft. The speed at which a microcontroller can send signals down these 
+//wires can be limiting factor for the speed. When driving multiple steppers off 
+//this library the steps would become asynchronous when speeds of over 300 steps 
+//per second were exceeded.
+
+void locateSetup(AccelStepper &thestepper) {
+  thestepper.move(100000);     //'charge' the stepper up
+  thestepper.setMaxSpeed(300);
+  thestepper.setAcceleration(300);
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//locate() runs the stepper motor until the hall effects are triggered, then switches
+//to the other shaft and does the same.
+
+void locate(Servo &servo, AccelStepper &stepper, int pos, int HE1, int he1, int HE2, int he2, int valN, int valI, int valO) {
+  locateSetup(stepper);
+  engageO(valN, valI, valO, pos, servo);
+  he1 = digitalRead(HE1);
+  while (he1 == 1) {
+    stepper.run();
+    he1 = digitalRead(HE1);
+  }
+  he2 = digitalRead(HE2);
+  engageI(valN, valI, valO, pos, servo);
+  while (he2 == 1) {
+    stepper.run();
+    he2 = digitalRead(HE2);
+  }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//indicator() takes the value from TopPos(), and shows what its position is in
+//the central coloured lights. This allows the top corner to be used as a mode
+//selecter when the gizmo is started up.
+
+void indicator(int P){
+  digitalWrite(LED_MG, HIGH);;
+  digitalWrite(LED_MY, HIGH);
+  digitalWrite(LED_MR, HIGH);
+  
+  if (P == 0){
+    digitalWrite(LED_MG, LOW);
+    digitalWrite(LED_MGW, HIGH);
+  }
+  else if (P == 1){
+    digitalWrite(LED_MY, LOW);
+    digitalWrite(LED_MYW, HIGH);
+  }
+  else if (P == 2){
+    digitalWrite(LED_MR, LOW);
+    digitalWrite(LED_MRW, HIGH);
+  }
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//scramble() 
+
+void scramble(){
+  //scramble the values up as best it can
+  //set the values for all the steppers - these are different due to slight variations
+  //amongst the steppers
+  delay(500);
+  White2Colour();
+  stepper1.setMaxSpeed(250);
+  stepper1.setAcceleration(100);
+  stepper1.move(100000);
+  stepper2.setMaxSpeed(250);
+  stepper2.setAcceleration(100);
+  stepper2.move(100000);
+  stepper3.setMaxSpeed(100);
+  stepper3.setAcceleration(100);
+  stepper3.move(100000);
+  //engage the outer shafts for all three
+  neutral();
+  pos1 = engageI(val1N, val1I, val1O, pos1, servo1);
+  pos2 = engageI(val2N, val2I, val2O, pos2, servo2);
+  pos3 = engageI(val3N, val3I, val3O, pos3, servo3);
+
+  //the motors can't all be turned at the same time, this is a problem that should
+  //be solved by going to 12 V
+    
+  time_now = millis();
+    while (millis() < time_now + 10000) {
+      //scramble two of the steppers for 5 seconds
+      stepper2.run();
+      stepper1.run();
+    }
+    time_now = millis();
+    while (millis() < time_now + 10000) {
+      //scramble two of the steppers for 5 seconds
+      stepper3.run();
+    }
+
+  //the switch to the outer shaft for all three and scramble the positions.
+
+  pos1 = engageO(val1N, val1I, val1O, pos1, servo1);
+  pos2 = engageO(val2N, val2I, val2O, pos2, servo2);
+  pos3 = engageO(val3N, val3I, val3O, pos3, servo3);
+  time_now = millis();
+    while (millis() < time_now + 7000) {
+      //scramble two of the steppers for 5 seconds
+      stepper2.run();
+    }
+    time_now = millis();
+    while (millis() < time_now + 7000) {
+      //scramble two of the steppers for 5 seconds
+      stepper3.run();
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//solve() locates all the pieces, then senses to make sure they're in the right
+//place - if they are it turns the centre white
+
+void solve(){
+  locate(servo1, stepper1, pos1, HE_11, he_11, HE_12, he_12, val1N, val1I, val1O);
+  locate(servo2, stepper2, pos2, HE_21, he_21, HE_22, he_22, val2N, val2I, val2O);
+  locate(servo3, stepper3, pos3, HE_31, he_31, HE_32, he_32, val3N, val3I, val3O);
+  int sense1 = CornerSense(HE_11, HE_12, LED_1C, LED_1W);
+  int sense2 = CornerSense(HE_21, HE_22, LED_2C, LED_2W);
+  int sense3 = CornerSense(HE_31, HE_32, LED_3C, LED_3W);
+  if (sense1 && sense2 && sense3){
+    MW();
+    delay(1000);
+  }
+}
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//set the modes, attach the servos and set them to neutral and launch the startup lights
+
+void setup() {
+
+  pinMode(HE_11, INPUT);
+  pinMode(HE_12, INPUT);
+  pinMode(HE_21, INPUT);
+  pinMode(HE_22, INPUT);
+  pinMode(HE_31, INPUT);
+  pinMode(HE_32, INPUT);
+  pinMode(HE_top1, INPUT);
+  pinMode(HE_top2, INPUT);
+
+  pinMode(LED_MR, OUTPUT);
+  pinMode(LED_MG, OUTPUT);
+  pinMode(LED_MY, OUTPUT);
+  pinMode(LED_MRW, OUTPUT);
+  pinMode(LED_MGW, OUTPUT);
+  pinMode(LED_MYW, OUTPUT);
+
+  pinMode(LED_1C, OUTPUT);
+  pinMode(LED_1W, OUTPUT);
+  pinMode(LED_2C, OUTPUT);
+  pinMode(LED_2W, OUTPUT);
+  pinMode(LED_3C, OUTPUT);
+  pinMode(LED_3W, OUTPUT);
+  pinMode(LED_TC, OUTPUT);
+  pinMode(LED_TW, OUTPUT);
+
+  servo1.attach(22);
+  servo2.attach(23);
+  servo3.attach(24);
+  
+  neutral();
+
+  start();
+}
+
+void loop() {
+    //initiate the start sequence
+    StartLights();
+    digitalWrite(LED_TW, HIGH);
+    digitalWrite(LED_TC, LOW);
+    //allow the user to select a mode using the top corner
+    int option = TopPos();
+    int i = 0;
+    while (i == 0){
+      digitalWrite(LED_TW, HIGH);
+      digitalWrite(LED_TC, LOW);
+      int option = TopPos();
+      indicator(option);
+      while (option == 3){
+        //wait
+        digitalWrite(LED_MRW, LOW);
+        digitalWrite(LED_MGW, LOW);
+        digitalWrite(LED_MYW, LOW);
+        int option = TopPos();
+        if (option != 3){
+          break;
+        }
+      }
+      if (option == 0){
+          //the corner has to be kept in the same place for 1.5 s to be selected
+          time_now = millis();
+          while (millis() < time_now + 1500) {
+            int indicate = TopPos();
+            indicator(indicate);
+            }
+          int chosen = TopPos();
+          if (chosen == option){
+            //condition 0 selected - scramble itself then solve itself
+            scramble();
+            solve();
+          }
+      }
+      else if (option == 2){
+          time_now = millis();
+          while (millis() < time_now + 1500) {
+            int indicate = TopPos();
+            indicator(indicate);
+            }
+          int chosen = TopPos();
+          if (chosen == option){
+            //HandSolve() retutrns 1 if all the pieces align
+            int solved = HandSolve();
+            while (solved == 0){
+              int solved = HandSolve();
+              //the puzzle has been solved
+              if (solved == 1){
+                int i = 1;
+                //make the whole gizmo turn white
+                Colour2White();
+                time_now = millis();
+                while (millis() < time_now + 2000) {         
+                  //pause for 2 s before returning to the selection mode
+                }
+                break;
+              }
+              }
+            }
+            
+          }
+       else if (option == 1){
+        time_now = millis();
+          while (millis() < time_now + 1500) {
+            int indicate = TopPos();
+            indicator(indicate);
+            }
+          int chosen = TopPos();
+          if (chosen == option){
+              //timer();
+              //timer() was a function that was written for the third option of the cube 
+              //It would use the LEDs and rotating pieces to act as a clock
+              //It has been removed from this code as it was outside the function of the
+              //gizmo.
+          }
+      }
+      
+    }}
